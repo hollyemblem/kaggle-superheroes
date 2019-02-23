@@ -1,0 +1,139 @@
+## Predicting Superhero Alignment
+
+In this kernel, we'll explore fitting a random forest algorithm to this dataset to see if we can predict the alignment of superheroes.
+
+This kernel will look at out of the box implementations, using minimal/no tuning.
+
+
+# Import our relevant libraries
+
+```{r import libraries, echo=TRUE, message=FALSE, warning=FALSE}
+library(tidyverse) 
+library(caret)
+library(dplyr)
+```
+## Import our CSV files
+```{r read csvs, echo=TRUE, message=FALSE, warning=FALSE}
+list.files(path = "../input")
+heroes <- read.csv("../input/heroes_information.csv", stringsAsFactors = TRUE)
+powers <- read.csv("../input/super_hero_powers.csv", stringsAsFactors = TRUE)
+```
+
+## Review our CSV Files
+We want to ensure our CSVs have imported correctly, so we'll take a look at a sample:
+
+```{r review top-level data, echo=TRUE, message=FALSE, warning=FALSE}
+head(heroes)
+head(powers)
+```
+
+## Merge our dataframes into one large dataframe
+We'll use dplyr to merge our dataframes together into one large dataframe:
+
+```{r merge our dataframes, echo=TRUE, message=FALSE, warning=FALSE}
+colnames(heroes)[colnames(heroes)=="name"] <- "hero_names"
+superheroesMerged <- inner_join(heroes, powers)
+```
+
+## Take a top-level review of all of the data
+```{r review a summary of the data, echo=TRUE, message=FALSE, warning=FALSE}
+summary(superheroesMerged)
+ncol(superheroesMerged)
+```
+
+## Cleaning up our dataset
+We can see there are numerous instances where the data is dominated by outliers, or there is only one value (e.g. 'False').
+
+We'll clean up the dataset to exclude these values where there is a high amount of outliers.
+
+We can also note that certain values, such as Hair.Color and Skin.Color have a large amount of empty values:
+
+
+```{r review aesthetic features, echo=TRUE, message=FALSE, warning=FALSE}
+superheroesMerged %>% group_by(Hair.color) %>% summarise(count = n())
+superheroesMerged %>% group_by(Skin.color) %>% summarise(count = n())
+superheroesMerged %>% group_by(Eye.color) %>% summarise(count = n())
+```
+
+We'll drop these from our dataset, as well our outliers.
+
+```{r cleanup of outliers, echo=TRUE, message=FALSE, warning=FALSE}
+col = colnames(superheroesMerged)[apply(superheroesMerged, 2, function(u) sum(u == "True") > 10)]
+
+k=c("hero_names","Gender","Alignment", "Race")
+for (i in k) {
+    col<-append(col,i)
+  }
+reducedData <- superheroesMerged[ , names(superheroesMerged) %in% col]
+
+```
+We can see that this has reduced our dataset:
+
+
+```{r count of new columns, echo=TRUE, message=FALSE, warning=FALSE}
+ncol(reducedData)
+```
+
+
+
+
+## Creating our alignment dataset
+In this instance, we want to predict whether a superhero is good or bad, so we'll exclude the superheroes who are neutral or '-' based:
+
+```{r visualisation of alignment, echo=TRUE, message=FALSE, warning=FALSE}
+reducedData %>% dplyr::group_by(Alignment) %>% dplyr::summarise(counter = n())
+g <- ggplot(reducedData, aes(Alignment))
+g + geom_bar(aes(fill=Alignment))
+```
+
+```{r visualisation of new two class alignment, echo=TRUE, message=FALSE, warning=FALSE}
+reducedData <- reducedData %>% filter(Alignment == 'good' | Alignment == 'bad') %>% droplevels()
+reducedData %>% dplyr::group_by(Alignment) %>% dplyr::summarise(counter = n())
+g <- ggplot(reducedData, aes(Alignment))
+g + geom_bar(aes(fill=Alignment))
+```
+
+## Creating our training and test datasets
+
+We've cleaned up our dataset, so we can now look to training and test sets for our data
+
+
+```{r create training and test datasets, echo=TRUE, message=FALSE, warning=FALSE}
+reducedData <- reducedData  %>% mutate(id = row_number())
+superheroesTrain <- reducedData %>% sample_frac(.80)
+test  <- anti_join(reducedData, superheroesTrain, by = 'id')
+```
+
+
+## Training our model
+
+Now we have our training set, we'll initialise our trainControl object and create our Random Forest model:
+
+
+```{r creating our Random Forest model, echo=TRUE, message=FALSE, warning=FALSE}
+objControl <- trainControl(method='repeatedcv', number=10, classProbs = TRUE,  summaryFunction = twoClassSummary)
+fit <- train(
+  as.factor(Alignment) ~.,  
+  data=subset(superheroesTrain, select=c(-id, -hero_names
+)),
+  metric = "ROC",
+  method = "rf",
+  trControl = objControl
+)
+```
+
+We'll check the fit of our model:
+```{r read, echo=TRUE, message=FALSE, warning=FALSE}
+predictStrong = predict(fit, newdata=subset(test, select=c(-id, -hero_names)))
+print(postResample(pred=predictStrong, obs=(test$Alignment)))
+```
+
+Not bad! Not the best model in the world: We could improve our model further with tuning, but this is our model out of the box.
+
+## Improvements to this Model
+
+There are numerous things we could do to improve this model. We haven't conducted a deep amount of exploratory data analysis.
+
+We can also try different algorithms to see if we can find a better predictor, however this is a good (basic!) baseline.
+
+Similarly, when viewing variables such as Hair.color, we could regroup these more appropriately to make use of the variable.
